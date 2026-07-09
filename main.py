@@ -154,7 +154,7 @@ class PipelineAuditoria:
     def __init__(self) -> None:
         self.db_local = GerenciadorBancoLocal()
         self.url_api: str = os.getenv(
-            "URL_API_CENTRAL", "http://localhost:3001/api/comprovantes")
+            "URL_API_SAIDA", "http://localhost:3001/api/comprovantes")
         self.limiar_foco: float = float(
             os.getenv("LIMIAR_FOCO_MINIMO", "100.0"))
         self.limite_lote: int = int(os.getenv("LIMITE_LOTE", "20"))
