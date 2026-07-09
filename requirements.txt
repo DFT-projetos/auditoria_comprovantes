@@ -1,0 +1,10 @@
+certifi==2026.6.17
+charset-normalizer==3.4.9
+dotenv==0.9.9
+idna==3.18
+numpy==2.5.1
+opencv-python==5.0.0.93
+PyMySQL==1.2.0
+python-dotenv==1.2.2
+requests==2.34.2
+urllib3==2.7.0
