@@ -1,3 +1,4 @@
+import io
 import os
 import time
 import sqlite3
@@ -106,6 +107,119 @@ class AnalisadorImagem:
     """Classe utilitária para o processamento de visão computacional."""
 
     @staticmethod
+    def _calcular_caracteristicas(img: np.ndarray) -> Dict[str, float]:
+        cinza: np.ndarray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        foco_medido: float = float(cv2.Laplacian(cinza, cv2.CV_64F).var())
+
+        suave: np.ndarray = cv2.GaussianBlur(cinza, (5, 5), 0)
+        bordas: np.ndarray = cv2.Canny(suave, 75, 200)
+        densidade_bordas: float = float(np.count_nonzero(bordas)) / float(bordas.size)
+        contraste: float = float(cinza.std())
+
+        hist = cv2.calcHist([cinza], [0], None, [256], [0, 256])
+        hist = hist / max(hist.sum(), 1.0)
+        entropia: float = float(-(hist[hist > 0] * np.log2(hist[hist > 0])).sum()) if np.any(hist > 0) else 0.0
+
+        return {
+            "foco": foco_medido,
+            "densidade_bordas": densidade_bordas,
+            "contraste": contraste,
+            "entropia": entropia,
+        }
+
+    @staticmethod
+    def _configurar_ocr_local() -> Optional[Any]:
+        try:
+            import pytesseract
+        except Exception:
+            return None
+
+        caminho_tesseract = os.getenv("TESSERACT_CMD") or os.getenv("TESSERACT_PATH")
+        if caminho_tesseract:
+            pytesseract.pytesseract.tesseract_cmd = caminho_tesseract
+
+        try:
+            pytesseract.pytesseract.tesseract_version()
+            return pytesseract
+        except Exception:
+            return None
+
+    @staticmethod
+    def _executar_ocr_local(conteudo_bytes: bytes, img: np.ndarray) -> Dict[str, Any]:
+        pytesseract = AnalisadorImagem._configurar_ocr_local()
+        if pytesseract is None:
+            return {"status": "indisponivel", "texto": "", "palavras": 0}
+
+        try:
+            from PIL import Image
+        except Exception:
+            return {"status": "indisponivel", "texto": "", "palavras": 0}
+
+        imagem_pil = Image.open(io.BytesIO(conteudo_bytes)).convert("L")
+        largura, altura = imagem_pil.size
+        if largura < 300 or altura < 300:
+            imagem_pil = imagem_pil.resize((max(largura * 2, 600), max(altura * 2, 600)))
+
+        imagem_preprocessada = imagem_pil.point(lambda p: 255 if p > 180 else 0, "1")
+        dados = pytesseract.image_to_data(
+            imagem_preprocessada,
+            output_type=pytesseract.Output.DICT,
+            config="--psm 6 --oem 3"
+        )
+        textos = [texto for texto in dados.get("text", []) if texto and texto.strip()]
+        return {"status": "ok", "texto": " ".join(textos), "palavras": len(textos)}
+
+    @staticmethod
+    def _verificar_secundariamente(conteudo_bytes: bytes, img: np.ndarray, limiar_foco: float) -> Dict[str, Any]:
+        if img is None:
+            return {"aplicado": False, "status": "ERRO", "motivo": "Imagem indisponível para verificação secundária.", "metodo": "nenhum"}
+
+        if os.getenv("ENABLE_SEGUNDA_VERIFICACAO", "1").lower() not in {"1", "true", "yes", "on"}:
+            return {
+                "aplicado": False,
+                "status": "PULADO",
+                "motivo": "Segunda verificação desativada por configuração.",
+                "metodo": "desativado",
+            }
+
+        caracteristicas = AnalisadorImagem._calcular_caracteristicas(img)
+
+        heuristica_legivel = (
+            caracteristicas["foco"] >= max(limiar_foco * 0.65, 30.0)
+            and caracteristicas["densidade_bordas"] >= 0.01
+            and caracteristicas["contraste"] >= 20.0
+        )
+
+        if heuristica_legivel:
+            return {
+                "aplicado": True,
+                "status": "LEGIVEL",
+                "motivo": "Verificação secundária heurística aprovou a imagem como potencialmente legível.",
+                "metodo": "heuristica",
+                "foco": round(caracteristicas["foco"], 2),
+            }
+
+        ocr = AnalisadorImagem._executar_ocr_local(conteudo_bytes, img)
+        if ocr.get("status") == "ok" and ocr.get("palavras", 0) >= 3:
+            return {
+                "aplicado": True,
+                "status": "LEGIVEL",
+                "motivo": "OCR local encontrou texto suficiente para indicar legibilidade.",
+                "metodo": "ocr_local",
+                "foco": round(caracteristicas["foco"], 2),
+                "texto_ocr": ocr.get("texto", ""),
+            }
+
+        return {
+            "aplicado": True,
+            "status": "ILEGIVEL",
+            "motivo": "Verificação secundária local não encontrou sinais de legibilidade suficientes.",
+            "metodo": "ocr_local" if ocr.get("status") == "ok" else "heuristica",
+            "foco": round(caracteristicas["foco"], 2),
+            "texto_ocr": ocr.get("texto", ""),
+        }
+
+    @staticmethod
     def analisar(conteudo_bytes: bytes, limiar_foco: float = 100.0) -> Dict[str, Any]:
         try:
             image_array: np.ndarray = np.asarray(
@@ -117,32 +231,54 @@ class AnalisadorImagem:
 
             cinza: np.ndarray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             foco_medido: float = float(cv2.Laplacian(cinza, cv2.CV_64F).var())
+            status_primario: str = "LEGIVEL"
+            motivo_primario: str = f"Documento nítido (Foco: {foco_medido:.1f})"
 
             if foco_medido < limiar_foco:
-                return {"status": "ILEGIVEL", "motivo": f"Imagem borrada (Foco: {foco_medido:.1f})", "foco": round(foco_medido, 2)}
+                status_primario = "ILEGIVEL"
+                motivo_primario = f"Imagem borrada (Foco: {foco_medido:.1f})"
+            else:
+                suave: np.ndarray = cv2.GaussianBlur(cinza, (5, 5), 0)
+                bordas: np.ndarray = cv2.Canny(suave, 75, 200)
+                kernel: np.ndarray = cv2.getStructuringElement(
+                    cv2.MORPH_RECT, (30, 30))
+                bordas_dilatadas: np.ndarray = cv2.dilate(
+                    bordas, kernel, iterations=2)
 
-            suave: np.ndarray = cv2.GaussianBlur(cinza, (5, 5), 0)
-            bordas: np.ndarray = cv2.Canny(suave, 75, 200)
-            kernel: np.ndarray = cv2.getStructuringElement(
-                cv2.MORPH_RECT, (30, 30))
-            bordas_dilatadas: np.ndarray = cv2.dilate(
-                bordas, kernel, iterations=2)
+                contornos, _ = cv2.findContours(
+                    bordas_dilatadas, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-            contornos, _ = cv2.findContours(
-                bordas_dilatadas, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if not contornos:
+                    status_primario = "ILEGIVEL"
+                    motivo_primario = "Nenhum documento detectado."
+                else:
+                    maior_contorno: np.ndarray = max(contornos, key=cv2.contourArea)
+                    _, _, w, h = cv2.boundingRect(maior_contorno)
+                    proporcao_area: float = float(
+                        w * h) / float(img.shape[0] * img.shape[1])
 
-            if not contornos:
-                return {"status": "ILEGIVEL", "motivo": "Nenhum documento detectado.", "foco": round(foco_medido, 2)}
+                    if proporcao_area < 0.15:
+                        status_primario = "ILEGIVEL"
+                        motivo_primario = f"Área insuficiente ({proporcao_area:.1%})"
 
-            maior_contorno: np.ndarray = max(contornos, key=cv2.contourArea)
-            _, _, w, h = cv2.boundingRect(maior_contorno)
-            proporcao_area: float = float(
-                w * h) / float(img.shape[0] * img.shape[1])
+            if status_primario == "LEGIVEL":
+                return {"status": "LEGIVEL", "motivo": motivo_primario, "foco": round(foco_medido, 2)}
 
-            if proporcao_area < 0.15:
-                return {"status": "ILEGIVEL", "motivo": f"Área insuficiente ({proporcao_area:.1%})", "foco": round(foco_medido, 2)}
+            verificacao_secundaria = AnalisadorImagem._verificar_secundariamente(conteudo_bytes, img, limiar_foco)
+            if verificacao_secundaria.get("status") == "LEGIVEL":
+                return {
+                    "status": "LEGIVEL",
+                    "motivo": verificacao_secundaria["motivo"],
+                    "foco": round(foco_medido, 2),
+                    "segunda_verificacao": verificacao_secundaria,
+                }
 
-            return {"status": "LEGIVEL", "motivo": f"Documento nítido (Foco: {foco_medido:.1f})", "foco": round(foco_medido, 2)}
+            return {
+                "status": "ILEGIVEL",
+                "motivo": f"{motivo_primario} | {verificacao_secundaria['motivo']}",
+                "foco": round(foco_medido, 2),
+                "segunda_verificacao": verificacao_secundaria,
+            }
 
         except Exception as e:
             return {"status": "ERRO", "motivo": str(e), "foco": 0.0}
