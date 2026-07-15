@@ -46,6 +46,8 @@ class GerenciadorBancoLocal:
                     operador TEXT,
                     nome_operador TEXT,
                     base TEXT,
+                    uf_destino TEXT,
+                    cidade_destino TEXT,
                     cliente TEXT,
                     url_imagem TEXT,
                     id_status_legibilidade INTEGER,
@@ -82,8 +84,8 @@ class GerenciadorBancoLocal:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR REPLACE INTO resultados_analise 
-                (id_anexo, id_minuta, operador, nome_operador, base, cliente, url_imagem, id_status_legibilidade, foco, data_comprovante, hora_comprovante, processado_em)
-                VALUES (:id_anexo, :id_minuta, :operador, :nome_operador, :base, :cliente, :url_imagem, :id_status_legibilidade, :foco, :data_comprovante, :hora_comprovante, :processado_em)
+                (id_anexo, id_minuta, operador, nome_operador, base, uf_destino, cidade_destino, cliente, url_imagem, id_status_legibilidade, foco, data_comprovante, hora_comprovante, processado_em)
+                VALUES (:id_anexo, :id_minuta, :operador, :nome_operador, :base, :uf_destino, :cidade_destino, :cliente, :url_imagem, :id_status_legibilidade, :foco, :data_comprovante, :hora_comprovante, :processado_em)
             """, dados)
             conn.commit()
 
@@ -173,14 +175,6 @@ class AnalisadorImagem:
     def _verificar_secundariamente(conteudo_bytes: bytes, img: np.ndarray, limiar_foco: float) -> Dict[str, Any]:
         if img is None:
             return {"aplicado": False, "status": "ERRO", "motivo": "Imagem indisponível para verificação secundária.", "metodo": "nenhum"}
-
-        if os.getenv("ENABLE_SEGUNDA_VERIFICACAO", "1").lower() not in {"1", "true", "yes", "on"}:
-            return {
-                "aplicado": False,
-                "status": "PULADO",
-                "motivo": "Segunda verificação desativada por configuração.",
-                "metodo": "desativado",
-            }
 
         caracteristicas = AnalisadorImagem._calcular_caracteristicas(img)
 
@@ -321,14 +315,23 @@ class PipelineAuditoria:
 
         query: str = """
             SELECT
-                a.id_anexo, a.id_minuta, a.imagem AS url_imagem, u.logim AS operador,
-                u.nome_completo AS nome_operador, a.`data` AS data_comprovante, a.hora AS hora_comprovante,
-                uni.sigla AS `base`, f.razao AS `cliente`
+                a.id_anexo,
+                a.id_minuta,
+                a.imagem AS `url_imagem`,
+                u.logim AS `operador`,
+                u.nome_completo AS `nome_operador`,
+                a.`data` AS `data_comprovante`,
+                a.hora AS `hora_comprovante`,
+                uni.sigla AS `base`,
+                r.uf AS `uf_destino`,
+                r.rota AS `cidade_destino`,
+                f.razao AS `cliente`
             FROM anexos a
             LEFT JOIN usuarios u ON a.operador = u.id_usuario
             LEFT JOIN minuta m ON a.id_minuta = m.id_minuta
             LEFT JOIN unidades uni ON m.unidade = uni.id_unidade
             LEFT JOIN fornecedores f ON m.id_cliente = f.id_local
+            LEFT JOIN rotas r ON m.destino = r.id_rota
             WHERE a.tipo = 1 AND a.`data` >= %s AND a.id_anexo > %s AND a.imagem NOT LIKE '%%.pdf'
             ORDER BY a.id_anexo ASC LIMIT %s
         """
@@ -362,11 +365,18 @@ class PipelineAuditoria:
                 id_status: int = mapa_status.get(status_texto, 4)
 
                 self.db_local.salvar_resultado({
-                    "id_anexo": id_anexo, "id_minuta": reg['id_minuta'],
-                    "operador": reg['operador'], "nome_operador": reg['nome_operador'],
-                    "base": reg['base'], "cliente": reg['cliente'],
-                    "url_imagem": url, "id_status_legibilidade": id_status,
-                    "foco": foco_medido, "data_comprovante": str(reg['data_comprovante']),
+                    "id_anexo": id_anexo,
+                    "id_minuta": reg['id_minuta'],
+                    "operador": reg['operador'],
+                    "nome_operador": reg['nome_operador'],
+                    "base": reg['base'],
+                    "cliente": reg['cliente'],
+                    "uf_destino": reg['uf_destino'],
+                    "cidade_destino": reg['cidade_destino'],
+                    "url_imagem": url,
+                    "id_status_legibilidade": id_status,
+                    "foco": foco_medido,
+                    "data_comprovante": str(reg['data_comprovante']),
                     "hora_comprovante": str(reg['hora_comprovante']),
                     "processado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
