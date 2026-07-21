@@ -215,6 +215,18 @@ class AnalisadorImagem:
 
     @staticmethod
     def analisar(conteudo_bytes: bytes, limiar_foco: float = 100.0) -> Dict[str, Any]:
+        """Realiza uma análise de qualidade da imagem detectando documento.
+
+        Verifica clareza (foco), presença de contornos consistentes e proporção do objeto dentro da imagem para determinar se o documento é legível ou ilegivel. Em caso de dúvida, executa verificações secundárias.
+
+        Args:
+            conteudo_bytes (bytes): Bytes brutos representando a imagem capturada ou salva em formato PNG/JPEG.
+            limiar_foco (float, optional): Limiar mínimo para considerar o foco como aceitável. Padrão é 100.0 (variação da matriz Laplaciana).
+
+        Returns:
+            Dict[str, Any]: Dicionário contendo 'status' ('LEGIVEL', 'ILEGIVEL' ou 'ERRO'), 
+                            a descrição do motivo e o valor medido de foco. Se legível via análise primária mas ilegível pela secundária, retorna status LEGIVEL; caso contrário (se ambas indicarem illegivel), status ILEGIVEL.
+        """
         try:
             image_array: np.ndarray = np.asarray(
                 bytearray(conteudo_bytes), dtype=np.uint8)
