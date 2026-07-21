@@ -37,9 +37,8 @@ def orquestrar_trabalhadores_por_data(data_inicio_str: str, data_fim_str: str, n
         
         logging.info(f"Disparando Worker {i+1}: de {str_inicio} a {str_fim}")
 
-        # O uso de sys.executable obriga o Windows a abrir a nova janela utilizando
-        # exatamente o mesmo interpretador (e bibliotecas) que está rodando este arquivo.
-        comando: str = f'start "Worker {i+1}" "{sys.executable}" worker.py {str_inicio} {str_fim}'
+        # Invocando o worker com a sintaxe explícita de flags --inicio e --fim
+        comando: str = f'start "Worker {i+1}" "{sys.executable}" worker.py --inicio {str_inicio} --fim {str_fim}'
         subprocess.run(comando, shell=True)
 
 if __name__ == "__main__":
