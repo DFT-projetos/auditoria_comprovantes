@@ -343,7 +343,8 @@ class PipelineAuditoria:
             LEFT JOIN minuta m ON a.id_minuta = m.id_minuta
             LEFT JOIN unidades uni ON m.unidade = uni.id_unidade
             LEFT JOIN fornecedores f ON m.id_cliente = f.id_local
-            LEFT JOIN rotas r ON m.destino = r.id_rota
+            LEFT JOIN minuta_enderecos me ON me.id = m.id_entrega_endereco
+            LEFT JOIN rotas r ON COALESCE(me.cidade, m.destino) = r.id_rota
             WHERE a.tipo = 1 AND a.`data` >= %s AND a.id_anexo > %s AND a.imagem NOT LIKE '%%.pdf'
             ORDER BY a.id_anexo ASC LIMIT %s
         """
