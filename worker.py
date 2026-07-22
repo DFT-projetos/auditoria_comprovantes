@@ -124,7 +124,8 @@ class TrabalhadorHistoricoData:
                         "foco": foco_medido,
                         "data_comprovante": str(reg['data_comprovante']),
                         "hora_comprovante": str(reg['hora_comprovante']),
-                        "processado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        "processado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "enviado": 0
                     })
                     
                     ultimo_id_processado = id_anexo

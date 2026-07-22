@@ -84,8 +84,8 @@ class GerenciadorBancoLocal:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR REPLACE INTO resultados_analise 
-                (id_anexo, id_minuta, operador, nome_operador, base, uf_destino, cidade_destino, cliente, url_imagem, id_status_legibilidade, foco, data_comprovante, hora_comprovante, processado_em)
-                VALUES (:id_anexo, :id_minuta, :operador, :nome_operador, :base, :uf_destino, :cidade_destino, :cliente, :url_imagem, :id_status_legibilidade, :foco, :data_comprovante, :hora_comprovante, :processado_em)
+                (id_anexo, id_minuta, operador, nome_operador, base, uf_destino, cidade_destino, cliente, url_imagem, id_status_legibilidade, foco, data_comprovante, hora_comprovante, processado_em, enviado)
+                VALUES (:id_anexo, :id_minuta, :operador, :nome_operador, :base, :uf_destino, :cidade_destino, :cliente, :url_imagem, :id_status_legibilidade, :foco, :data_comprovante, :hora_comprovante, :processado_em, 0)
             """, dados)
             conn.commit()
 
@@ -391,7 +391,8 @@ class PipelineAuditoria:
                     "foco": foco_medido,
                     "data_comprovante": str(reg['data_comprovante']),
                     "hora_comprovante": str(reg['hora_comprovante']),
-                    "processado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    "processado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "enviado": 0
                 })
                 self.db_local.atualizar_ultimo_id(id_anexo)
         finally:
